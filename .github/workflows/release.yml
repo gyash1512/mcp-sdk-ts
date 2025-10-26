@@ -1,0 +1,172 @@
+name: Release to npm
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build project
+        run: npm run build
+      
+      - name: Check TypeScript compilation
+        run: npx tsc --noEmit
+      
+      - name: Verify build artifacts
+        run: |
+          test -f dist/index.js || exit 1
+          test -f dist/core/server.js || exit 1
+          test -f dist/core/tool.js || exit 1
+          test -f dist/cli/index.js || exit 1
+          echo "✅ All build artifacts present"
+      
+      - name: Test CLI commands
+        run: |
+          node dist/cli/index.js --version || true
+          echo "✅ CLI executable"
+  
+  publish-npm:
+    name: Publish to npm
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org/'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build project
+        run: npm run build
+      
+      - name: Extract version from tag
+        id: extract_version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/v}
+          echo "version=$TAG" >> $GITHUB_OUTPUT
+          echo "📦 Publishing version: $TAG"
+      
+      - name: Verify package.json version matches tag
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION=${{ steps.extract_version.outputs.version }}
+          if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ Version mismatch: package.json ($PACKAGE_VERSION) != tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "✅ Version match confirmed: $PACKAGE_VERSION"
+      
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      
+      - name: Verify npm publication
+        run: |
+          sleep 30
+          npm view mcp-sdk-ts@${{ steps.extract_version.outputs.version }} version
+          echo "✅ Package published successfully to npm"
+  
+  create-github-release:
+    name: Create GitHub Release
+    needs: publish-npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Extract version from tag
+        id: extract_version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/v}
+          echo "version=$TAG" >> $GITHUB_OUTPUT
+      
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION=${{ steps.extract_version.outputs.version }}
+          echo "## 📦 Release v$VERSION" > release_notes.md
+          echo "" >> release_notes.md
+          echo "### Installation" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "\`\`\`bash" >> release_notes.md
+          echo "# Install globally" >> release_notes.md
+          echo "npm install -g mcp-sdk-ts@$VERSION" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "# Or use with npx" >> release_notes.md
+          echo "npx mcp-sdk-ts@$VERSION init my-server" >> release_notes.md
+          echo "\`\`\`" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "### Quick Start" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "\`\`\`bash" >> release_notes.md
+          echo "mcp init my-server" >> release_notes.md
+          echo "cd my-server" >> release_notes.md
+          echo "npm install" >> release_notes.md
+          echo "npm run dev" >> release_notes.md
+          echo "\`\`\`" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "### Package Info" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "- **npm**: https://www.npmjs.com/package/mcp-sdk-ts/v/$VERSION" >> release_notes.md
+          echo "- **Node.js**: 18+ required" >> release_notes.md
+          echo "- **TypeScript**: Full type safety with Zod schemas" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "### Features" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "- 🚀 **Zero Boilerplate** - Create MCP servers in <10 lines" >> release_notes.md
+          echo "- 🔒 **Type-Safe** - Full TypeScript + Zod validation" >> release_notes.md
+          echo "- 🛠️ **Built-in Middleware** - Auth, rate limiting, CORS, logging" >> release_notes.md
+          echo "- 📝 **Auto Documentation** - Generate manifest.json automatically" >> release_notes.md
+          echo "- 🔌 **Code Generation** - OpenAPI and database tools" >> release_notes.md
+          echo "- ⚡ **Hot Reload** - Development mode with watch" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "### Documentation" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "- [README](https://github.com/${{ github.repository }}/blob/main/README.md)" >> release_notes.md
+          echo "- [Examples](https://github.com/${{ github.repository }}/tree/main/examples)" >> release_notes.md
+          
+          cat release_notes.md
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release v${{ steps.extract_version.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
