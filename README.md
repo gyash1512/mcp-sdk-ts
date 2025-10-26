@@ -4,7 +4,7 @@
 
 Build production-ready MCP servers in just a few lines of code with automatic schema validation, type safety, and built-in middleware.
 
-[![npm version](https://badge.fury.io/js/mcp-sdk-ts.svg)](https://www.npmjs.com/package/mcp-sdk-ts)
+[![npm version](https://img.shields.io/npm/v/mcp-sdk-ts.svg)](https://www.npmjs.com/package/mcp-sdk-ts)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue)](https://www.typescriptlang.org/)
 
